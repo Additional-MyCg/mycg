@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - frontend
+      - backend-node
+      - backend-python
+    networks:
+      - microservice-network
+    restart: unless-stopped
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend-react
+      dockerfile: Dockerfile
+    container_name: react-frontend
+    ports:
+      - "3001:3000"
+    environment:
+      - REACT_APP_NODE_API_URL=http://20.84.49.27/api/node
+      - REACT_APP_PYTHON_API_URL=http://20.84.49.27/api/python
+      - NODE_ENV=production
+    networks:
+      - microservice-network
+    restart: unless-stopped
+
+  # Node.js Backend
+  backend-node:
+    build:
+      context: ./backend-node
+      dockerfile: Dockerfile
+    container_name: node-backend
+    ports:
+      - "5001:5000"
+    environment:
+      - DATABASE_URL=postgresql://mycgadmin:mycgdev@postgres-node:5432/mycgnodedb
+      - NODE_ENV=production
+    depends_on:
+      postgres-node:
+        condition: service_healthy
+    networks:
+      - microservice-network
+    restart: unless-stopped
+
+  # Python Backend
+  backend-python:
+    build:
+      context: ./backend-python
+      dockerfile: Dockerfile
+    container_name: python-backend
+    ports:
+      - "8001:8000"
+    environment:
+      - DATABASE_URL=postgresql://mycgadmin:mycgdev@postgres-python:5432/mycgpythondb
+      - FLASK_ENV=production
+    depends_on:
+      postgres-python:
+        condition: service_healthy
+    networks:
+      - microservice-network
+    restart: unless-stopped
+
+  # PostgreSQL for Node.js
+  postgres-node:
+    image: postgres:15
+    container_name: postgres-node
+    environment:
+      - POSTGRES_DB=mycgnodedb
+      - POSTGRES_USER=mycgadmin
+      - POSTGRES_PASSWORD=mycgdev
+    volumes:
+      - postgres_node_data:/var/lib/postgresql/data
+      - ./backend-node/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5433:5432"
+    networks:
+      - microservice-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mycgadmin -d mycgnodedb"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL for Python
+  postgres-python:
+    image: postgres:15
+    container_name: postgres-python
+    environment:
+      - POSTGRES_DB=mycgpythondb
+      - POSTGRES_USER=mycgadmin
+      - POSTGRES_PASSWORD=mycgdev
+    volumes:
+      - postgres_python_data:/var/lib/postgresql/data
+      - ./backend-python/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5434:5432"
+    networks:
+      - microservice-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mycgadmin -d mycgpythondb"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_node_data:
+  postgres_python_data:
+
+networks:
+  microservice-network:
+    driver: bridge
