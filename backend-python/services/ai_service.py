@@ -5,12 +5,14 @@ import json
 import re
 from config.settings import settings
 from models.ai_models import AIQueryResponse, NoticeAnalysis
-
+from openai import OpenAI
 class AIService:
     def __init__(self):
         ai_config = settings.get_ai_config()
         
-        openai.api_key = ai_config["openai_api_key"]
+        # Initialize OpenAI client (new style)
+        self.client = OpenAI(api_key=ai_config["openai_api_key"])
+        
         self.model = ai_config["default_model"]
         self.max_tokens = ai_config["max_tokens"]
         self.temperature = ai_config["temperature"]
@@ -213,7 +215,8 @@ class AIService:
     
     async def _call_openai(self, prompt: str, max_tokens: int = None) -> str:
         try:
-            response = await openai.ChatCompletion.acreate(
+            # New API style
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "You are a helpful AI assistant specializing in Indian GST, tax compliance, and accounting. Always provide accurate, actionable advice."},
