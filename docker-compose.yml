@@ -53,19 +53,29 @@ services:
     restart: unless-stopped
 
   # Python Backend
+# Python Backend
   backend-python:
     build:
       context: ./backend-python
       dockerfile: Dockerfile
     container_name: python-backend
     ports:
-      - "8001:8000"
+      - "8001:8001"  # Changed from 8001:8000 to 8001:8001
     environment:
       - DATABASE_URL=postgresql://mycgadmin:mycgdev@postgres-python:5432/mycgpythondb
-      - FLASK_ENV=production
+      - ENVIRONMENT=production  # Changed from FLASK_ENV
+      - NODE_BACKEND_URL=http://backend-node:5000  # Added
+      - REDIS_URL=redis://redis:6379  # Added
+    env_file:
+      - ./backend-python/.env  # Added for Azure OpenAI keys
+    volumes:  # Added
+      - ./backend-python/temp_uploads:/app/temp_uploads
+      - ./backend-python/logs:/app/logs
     depends_on:
       postgres-python:
         condition: service_healthy
+      redis:  # Added
+        condition: service_started
     networks:
       - microservice-network
     restart: unless-stopped
@@ -114,9 +124,20 @@ services:
       timeout: 10s
       retries: 3
 
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - microservice-network
+    restart: unless-stopped
+
 volumes:
   postgres_node_data:
   postgres_python_data:
+  redis_data:
 
 networks:
   microservice-network:
