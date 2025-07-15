@@ -1,10 +1,20 @@
 import re
 import json
-from typing import Dict, Any, List
-import pandas as pd
+from typing import Dict, Any, List, Optional
 from datetime import datetime
+
+# Safe pandas import with error handling
+pd = None
+try:
+    import pandas as pd
+except ImportError as e:
+    print(f"Warning: pandas import failed: {e}")
+except ValueError as e:
+    print(f"Warning: pandas import failed due to numpy compatibility: {e}")
+    pd = None
+
 from models.ai_models import BankStatementParsing, InvoiceData, TransactionData
-from typing import Optional, List, Dict, Any  # Add whatever other types you're using
+
 class DocumentProcessor:
     def __init__(self):
         self.date_patterns = [
@@ -19,6 +29,11 @@ class DocumentProcessor:
             r'\b([0-9,]+\.[0-9]{2})\b',
             r'\b([0-9,]+)\b'
         ]
+        
+        # Check if pandas is available
+        self.pandas_available = pd is not None
+        if not self.pandas_available:
+            print("Warning: DocumentProcessor running without pandas support")
     
     async def parse_bank_statement(self, extracted_text: str) -> BankStatementParsing:
         """Parse bank statement text and extract transaction details"""
@@ -107,6 +122,40 @@ class DocumentProcessor:
         invoice_data.confidence = fields_found / 4.0
         
         return invoice_data
+    
+    async def process_csv_data(self, file_path: str) -> Dict[str, Any]:
+        """Process CSV file data - requires pandas"""
+        if not self.pandas_available:
+            return {
+                "error": "CSV processing unavailable: pandas not installed or incompatible",
+                "success": False,
+                "data": None
+            }
+        
+        try:
+            df = pd.read_csv(file_path)
+            
+            # Basic analysis
+            analysis = {
+                "rows": len(df),
+                "columns": len(df.columns),
+                "column_names": df.columns.tolist(),
+                "data_types": df.dtypes.to_dict(),
+                "summary_stats": df.describe().to_dict() if df.select_dtypes(include=[np.number]).shape[1] > 0 else {}
+            }
+            
+            return {
+                "success": True,
+                "data": analysis,
+                "sample_data": df.head().to_dict('records') if len(df) > 0 else []
+            }
+            
+        except Exception as e:
+            return {
+                "error": f"CSV processing failed: {str(e)}",
+                "success": False,
+                "data": None
+            }
     
     async def _extract_account_details(self, text: str) -> Dict[str, Any]:
         """Extract account details from statement"""
@@ -291,3 +340,11 @@ class DocumentProcessor:
                 })
         
         return line_items[:10]  # Return max 10 items
+    
+    def get_pandas_status(self) -> Dict[str, Any]:
+        """Get pandas availability status"""
+        return {
+            "available": self.pandas_available,
+            "features_affected": ["CSV processing", "Excel processing", "Data analysis"] if not self.pandas_available else [],
+            "message": "Pandas unavailable due to dependency conflicts" if not self.pandas_available else "Pandas available"
+        }

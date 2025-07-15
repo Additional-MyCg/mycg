@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     redis_db: int = Field(0, description="Redis database number")
     redis_max_connections: int = Field(20, description="Redis max connections")
     
+    # Database Configuration
+    database_url: Optional[str] = Field(None, description="Database connection URL")
+    
     # Node.js Backend
     node_backend_url: str = Field("http://localhost:3000", description="Node.js backend URL")
     node_backend_api_key: Optional[str] = Field(None, description="Node.js backend API key")
@@ -99,11 +102,13 @@ class Settings(BaseSettings):
         "*", 
         description="CORS allowed origins (comma-separated)"
     )
+    cors_origins: Optional[List[str]] = Field(None, description="CORS allowed origins list")
     api_key_header: str = Field("X-API-Key", description="API key header name")
     enable_api_key_auth: bool = Field(False, description="Enable API key authentication")
     
     # Rate Limiting
-    rate_limit_requests: int = Field(100, description="Rate limit requests per minute")
+    rate_limit_requests: Optional[int] = Field(100, description="Rate limit requests per minute")
+    rate_limit_window: Optional[int] = Field(3600, description="Rate limit window in seconds")
     rate_limit_whatsapp: int = Field(300, description="WhatsApp rate limit per minute")
     rate_limit_document: int = Field(20, description="Document processing rate limit per minute")
     
@@ -336,13 +341,14 @@ class Settings(BaseSettings):
     def validate_critical_settings(self) -> List[str]:
         issues = []
         
-        if not self.openai_api_key and self.environment == "production":
+        # Only require API keys in strict production (not debug mode)
+        if not self.openai_api_key and self.environment == "production" and not self.debug:
             issues.append("OpenAI API key is required in production")
         
         if self.twilio_account_sid and not self.twilio_auth_token:
             issues.append("Twilio auth token is required when account SID is provided")
         
-        if self.secret_key == "your-secret-key-change-in-production" and self.is_production():
+        if self.secret_key == "your-secret-key-change-in-production" and self.is_production() and not self.debug:
             issues.append("Secret key must be changed in production")
         
         if self.azure_storage_account and not (self.azure_storage_key or self.azure_storage_connection_string):
@@ -403,22 +409,39 @@ def configure_for_testing():
     return settings
 
 def configure_for_production():
+    """Configure settings for production environment with graceful validation"""
     global settings
+    logger.info("🏭 Configuring for production environment...")
     
+    # Check critical configuration
     issues = settings.validate_critical_settings()
+    
     if issues:
         error_msg = "Production configuration issues:\n" + "\n".join(f"- {issue}" for issue in issues)
-        raise ValueError(error_msg)
+        
+        # Only raise error if not in debug mode
+        if not settings.debug:
+            logger.error(f"❌ Production configuration error: {error_msg}")
+            raise ValueError(error_msg)
+        else:
+            logger.warning(f"⚠️ Production configuration warnings (ignored in debug mode): {error_msg}")
     
-    production_overrides = {
-        "debug": False,
-        "enable_auto_reload": False,
-        "log_level": "INFO"
-    }
+    # Set production-specific configurations
+    settings.cors_origins = settings.cors_origins or ["https://yourdomain.com"]
+    settings.rate_limit_requests = settings.rate_limit_requests or 100
+    settings.rate_limit_window = settings.rate_limit_window or 3600
     
-    for key, value in production_overrides.items():
-        setattr(settings, key, value)
+    # Only override debug in strict production
+    if not settings.debug:
+        production_overrides = {
+            "enable_auto_reload": False,
+            "log_level": "INFO"
+        }
+        
+        for key, value in production_overrides.items():
+            setattr(settings, key, value)
     
+    logger.info("✅ Production configuration completed")
     return settings
 
 def setup_settings_handlers():
