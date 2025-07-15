@@ -5,6 +5,8 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
+    image: mycg-ai:latest
+    container_name: mycg-ai-service
     ports:
       - "8001:8001"
     environment:
@@ -18,7 +20,8 @@ services:
       - ./temp_uploads:/app/temp_uploads
       - ./logs:/app/logs
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - mycg-network
@@ -31,14 +34,15 @@ services:
     
   redis:
     image: redis:7-alpine
+    container_name: mycg-redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     networks:
       - mycg-network
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
@@ -47,6 +51,7 @@ services:
     
   nginx:
     image: nginx:alpine
+    container_name: mycg-nginx
     ports:
       - "80:80"
       - "443:443"
@@ -68,6 +73,7 @@ services:
   # Optional: Monitoring with Prometheus & Grafana
   prometheus:
     image: prom/prometheus:latest
+    container_name: mycg-prometheus
     ports:
       - "9090:9090"
     volumes:
@@ -86,6 +92,7 @@ services:
 
   grafana:
     image: grafana/grafana:latest
+    container_name: mycg-grafana
     ports:
       - "3001:3000"
     volumes:
@@ -94,6 +101,7 @@ services:
       - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
     networks:
       - mycg-network
     profiles:
