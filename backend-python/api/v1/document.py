@@ -25,8 +25,17 @@ async def process_document(
     try:
         # Save uploaded file
         file_handler = FileHandler()
-        file_info = await file_handler.upload_to_azure(file_path, f"documents/{user_id}/file.pdf")
-
+        file_info = await file_handler.save_upload_file(file, user_id)
+        
+        # Upload to Azure if configured
+        azure_url = None
+        if file_handler.blob_service_client:
+            azure_url = await file_handler.upload_to_azure(
+                file_info["file_path"], 
+                f"documents/{user_id}/{file_info['filename']}"
+            )
+            file_info["azure_url"] = azure_url
+        
         # Start processing in background
         background_tasks.add_task(
             process_document_background,

@@ -107,8 +107,36 @@ async def check_ai_services_status():
     
     services_status = {}
     
-    # Test OpenAI
-    if settings.openai_api_key:
+    # Check if we're using Azure OpenAI
+    if settings.use_azure_openai and settings.azure_openai_api_key:
+        try:
+            from openai import AzureOpenAI
+            client = AzureOpenAI(
+                api_key=settings.azure_openai_api_key,
+                api_version=settings.azure_openai_api_version,
+                azure_endpoint=settings.azure_openai_endpoint
+            )
+            
+            # Test with a simple completion
+            start_time = datetime.now()
+            response = client.chat.completions.create(
+                model=settings.azure_openai_deployment_name,
+                messages=[{"role": "user", "content": "Hello"}],
+                max_tokens=5
+            )
+            response_time = (datetime.now() - start_time).total_seconds() * 1000
+            
+            services_status["azure_openai"] = {
+                "status": "healthy",
+                "model": settings.azure_openai_deployment_name,
+                "endpoint": settings.azure_openai_endpoint,
+                "response_time_ms": round(response_time, 2)
+            }
+        except Exception as e:
+            services_status["azure_openai"] = {"status": "error", "error": str(e)}
+    
+    # Test regular OpenAI only if not using Azure
+    elif settings.openai_api_key and not settings.use_azure_openai:
         try:
             import openai
             openai.api_key = settings.openai_api_key
@@ -116,7 +144,7 @@ async def check_ai_services_status():
             # Test with a simple completion
             start_time = datetime.now()
             response = await openai.ChatCompletion.acreate(
-                model="gpt-3.5-turbo",
+                model="gpt-4o",
                 messages=[{"role": "user", "content": "Hello"}],
                 max_tokens=5,
                 timeout=10
@@ -132,23 +160,7 @@ async def check_ai_services_status():
             services_status["openai"] = {"status": "error", "error": str(e)}
     else:
         services_status["openai"] = {"status": "not_configured"}
-    
-    # Test Google Vision
-    if settings.google_vision_api_key:
-        try:
-            from google.cloud import vision
-            client = vision.ImageAnnotatorClient()
-            services_status["google_vision"] = {"status": "configured"}
-        except Exception as e:
-            services_status["google_vision"] = {"status": "error", "error": str(e)}
-    else:
-        services_status["google_vision"] = {"status": "not_configured"}
-    
-    # Test Anthropic
-    if settings.anthropic_api_key:
-        services_status["anthropic"] = {"status": "configured"}
-    else:
-        services_status["anthropic"] = {"status": "not_configured"}
+        services_status["azure_openai"] = {"status": "not_configured"}
     
     # OCR Services
     services_status["ocr"] = {

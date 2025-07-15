@@ -40,7 +40,13 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = Field(None, description="OpenAI API key for AI services")
     anthropic_api_key: Optional[str] = Field(None, description="Anthropic API key")
     google_vision_api_key: Optional[str] = Field(None, description="Google Vision API key")
-    
+
+    azure_openai_endpoint: Optional[str] = Field(None, description="Azure OpenAI endpoint")
+    azure_openai_api_key: Optional[str] = Field(None, description="Azure OpenAI API key")
+    azure_openai_deployment_name: Optional[str] = Field(None, description="Azure OpenAI deployment name")
+    azure_openai_api_version: str = Field("2024-02-01", description="Azure OpenAI API version")
+    use_azure_openai: bool = Field(False, description="Use Azure OpenAI instead of regular OpenAI")
+
     # WhatsApp/Messaging
     twilio_account_sid: Optional[str] = Field(None, description="Twilio Account SID")
     twilio_auth_token: Optional[str] = Field(None, description="Twilio Auth Token")
@@ -281,6 +287,11 @@ class Settings(BaseSettings):
     def get_ai_config(self) -> Dict[str, Any]:
         return {
             "openai_api_key": self.openai_api_key,
+            "azure_openai_endpoint": self.azure_openai_endpoint,
+            "azure_openai_api_key": self.azure_openai_api_key,
+            "azure_openai_deployment_name": self.azure_openai_deployment_name,
+            "azure_openai_api_version": self.azure_openai_api_version,
+            "use_azure_openai": self.use_azure_openai,
             "default_model": self.default_ai_model,
             "max_tokens": self.max_tokens,
             "temperature": self.temperature,

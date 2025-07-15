@@ -119,7 +119,7 @@ POST /api/v1/whatsapp/webhook
 | `REDIS_URL` | Redis connection URL | Yes |
 
 ### AI Model Configuration
-- **Default Model**: gpt-3.5-turbo
+- **Default Model**: gpt-4o
 - **Max Tokens**: 1000
 - **Temperature**: 0.3
 

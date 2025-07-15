@@ -1,19 +1,34 @@
-import openai
+# services/ai_service.py
+from openai import OpenAI, AzureOpenAI
 import asyncio
 from typing import Dict, Any, List
 import json
 import re
 from config.settings import settings
 from models.ai_models import AIQueryResponse, NoticeAnalysis
-from openai import OpenAI
+import logging
+
+logger = logging.getLogger(__name__)
+
 class AIService:
     def __init__(self):
         ai_config = settings.get_ai_config()
         
-        # Initialize OpenAI client (new style)
-        self.client = OpenAI(api_key=ai_config["openai_api_key"])
+        if ai_config.get("use_azure_openai") and ai_config.get("azure_openai_api_key"):
+            # Use Azure OpenAI
+            self.client = AzureOpenAI(
+                api_key=ai_config["azure_openai_api_key"],
+                api_version=ai_config["azure_openai_api_version"],
+                azure_endpoint=ai_config["azure_openai_endpoint"]
+            )
+            self.model = ai_config["azure_openai_deployment_name"]
+            logger.info(f"✅ Using Azure OpenAI with deployment: {self.model}")
+        else:
+            # Use regular OpenAI
+            self.client = OpenAI(api_key=ai_config["openai_api_key"])
+            self.model = ai_config["default_model"]
+            logger.info("Using OpenAI")
         
-        self.model = ai_config["default_model"]
         self.max_tokens = ai_config["max_tokens"]
         self.temperature = ai_config["temperature"]
         self.timeout = ai_config["timeout"]
@@ -39,11 +54,12 @@ class AIService:
         """
         
         try:
-            response = await self._call_openai(prompt, max_tokens=200)
+            response = self._call_openai(prompt, max_tokens=200)
             result = json.loads(response)
             return result
             
         except Exception as e:
+            logger.error(f"Categorization error: {e}")
             # Fallback categorization
             return {
                 "category": "Miscellaneous",
@@ -54,20 +70,13 @@ class AIService:
                 "gst_applicable": False,
                 "suggested_gst_rate": 0
             }
+    
     def reload_config(self, changed_fields):
         """Reload AI configuration when settings change"""
-        if any(field in changed_fields for field in ['openai_api_key', 'default_ai_model', 'max_tokens', 'temperature']):
+        if any(field in changed_fields for field in ['openai_api_key', 'default_ai_model', 'max_tokens', 'temperature', 'azure_openai_api_key', 'use_azure_openai']):
             logger.info("🤖 Reloading AI service configuration...")
-            ai_config = settings.get_ai_config()
-            
-            openai.api_key = ai_config["openai_api_key"]
-            self.model = ai_config["default_model"]
-            self.max_tokens = ai_config["max_tokens"]
-            self.temperature = ai_config["temperature"]
-            self.timeout = ai_config["timeout"]
-            self.max_retries = ai_config["max_retries"]
-            
-            logger.info("✅ AI service configuration reloaded")
+            self.__init__()
+    
     async def answer_gst_query(self, query: str, context: str = "") -> AIQueryResponse:
         """Answer GST/compliance related queries"""
         
@@ -88,10 +97,10 @@ class AIService:
         """
         
         try:
-            answer = await self._call_openai(prompt, max_tokens=400)
+            answer = self._call_openai(prompt, max_tokens=400)
             
             # Generate follow-up questions
-            follow_ups = await self._generate_follow_up_questions(query, answer)
+            follow_ups = self._generate_follow_up_questions(query, answer)
             
             return AIQueryResponse(
                 answer=answer,
@@ -102,6 +111,7 @@ class AIService:
             )
             
         except Exception as e:
+            logger.error(f"AI Query Error: {type(e).__name__}: {e}")
             return AIQueryResponse(
                 answer="I apologize, but I'm unable to process your GST query at the moment. Please try again later or contact our support team.",
                 confidence="low",
@@ -123,14 +133,24 @@ class AIService:
         - key_points: array of main issues (max 5)
         - required_actions: array of specific actions needed (max 5)
         - due_date_mentioned: boolean
-        - extracted_due_date: "YYYY-MM-DD" format if found
+        - extracted_due_date: "YYYY-MM-DD" format if found, null if not found
         - suggested_response: brief response strategy (2-3 sentences)
         - confidence: 0.0 to 1.0
+        
+        Ensure the JSON is valid and parseable.
         """
         
         try:
-            response = await self._call_openai(prompt, max_tokens=500)
-            data = json.loads(response)
+            response = self._call_openai(prompt, max_tokens=500)
+            logger.info(f"AI Response: {response[:200]}...")  # Log first 200 chars
+            
+            # Try to extract JSON from response
+            import re
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+            else:
+                data = json.loads(response)
             
             return NoticeAnalysis(
                 notice_type=notice_type,
@@ -144,6 +164,8 @@ class AIService:
             )
             
         except Exception as e:
+            logger.error(f"Notice analysis error: {type(e).__name__}: {e}")
+            logger.error(f"Response was: {response if 'response' in locals() else 'No response'}")
             return NoticeAnalysis(
                 notice_type=notice_type,
                 urgency="medium",
@@ -172,9 +194,10 @@ class AIService:
         """
         
         try:
-            reply_draft = await self._call_openai(prompt, max_tokens=600)
+            reply_draft = self._call_openai(prompt, max_tokens=600)
             return reply_draft
         except Exception as e:
+            logger.error(f"Reply generation error: {e}")
             return "Unable to generate reply draft. Please consult with a compliance expert."
     
     async def suggest_recurring_entries(self, transaction_history: List[Dict]) -> List[Dict[str, Any]]:
@@ -207,15 +230,15 @@ class AIService:
         """
         
         try:
-            response = await self._call_openai(prompt, max_tokens=500)
+            response = self._call_openai(prompt, max_tokens=500)
             suggestions = json.loads(response)
             return suggestions if isinstance(suggestions, list) else []
         except Exception as e:
+            logger.error(f"Recurring entry suggestion error: {e}")
             return []
     
-    async def _call_openai(self, prompt: str, max_tokens: int = None) -> str:
+    def _call_openai(self, prompt: str, max_tokens: int = None) -> str:
         try:
-            # New API style
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -223,15 +246,14 @@ class AIService:
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=max_tokens or self.max_tokens,
-                temperature=self.temperature,
-                timeout=self.timeout
+                temperature=self.temperature
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
             logger.error(f"OpenAI API error: {e}")
             raise
     
-    async def _generate_follow_up_questions(self, original_query: str, answer: str) -> List[str]:
+    def _generate_follow_up_questions(self, original_query: str, answer: str) -> List[str]:
         """Generate follow-up questions based on the query and answer"""
         
         prompt = f"""
@@ -244,7 +266,7 @@ class AIService:
         """
         
         try:
-            response = await self._call_openai(prompt, max_tokens=150)
+            response = self._call_openai(prompt, max_tokens=150)
             questions = json.loads(response)
             return questions[:3] if isinstance(questions, list) else []
         except:
