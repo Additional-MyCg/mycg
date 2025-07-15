@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  mycg-ai-dev:
+    build: 
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8001:8001"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - REDIS_URL=redis://redis:6379
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - /app/__pycache__
+      - ./temp_uploads:/app/temp_uploads
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+    networks:
+      - mycg-dev-network
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+    
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - mycg-dev-network
+
+networks:
+  mycg-dev-network:
+    driver: bridge
+
+# Usage:
+# Development: docker-compose -f docker-compose.dev.yml up
+# Production: docker-compose up -d
+# Monitoring: docker-compose --profile monitoring up -d
