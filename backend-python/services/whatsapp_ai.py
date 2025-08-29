@@ -1,3 +1,4 @@
+# services/whatsapp_ai.py
 from twilio.rest import Client
 from typing import Dict, Any
 import re
@@ -5,7 +6,6 @@ from config.settings import settings
 from models.ai_models import WhatsAppMessage, WhatsAppResponse
 from services.ai_service import AIService
 import logging
-from twilio.rest import Client
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +14,7 @@ class WhatsAppAIService:
         # Initialize Twilio client if credentials are available
         if settings.twilio_account_sid and settings.twilio_auth_token:
             self.client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
+            logger.info("WhatsApp service configured with Twilio")
         else:
             self.client = None
             logger.warning("WhatsApp service not configured - missing Twilio credentials")
@@ -103,17 +104,28 @@ class WhatsAppAIService:
     async def send_message(self, to_number: str, message: str) -> bool:
         """Send WhatsApp message"""
         if not self.client:
+            logger.warning("Cannot send message - Twilio client not initialized")
             return False
         
         try:
-            message = self.client.messages.create(
+            # Ensure proper WhatsApp number formatting
+            if not to_number.startswith('whatsapp:'):
+                to_number = f'whatsapp:{to_number}'
+            
+            # Ensure from number is properly formatted
+            from_number = self.whatsapp_number
+            if not from_number.startswith('whatsapp:'):
+                from_number = f'whatsapp:{from_number}'
+            
+            message_obj = self.client.messages.create(
                 body=message,
-                from_=f'whatsapp:{self.whatsapp_number}',
-                to=f'whatsapp:{to_number}'
+                from_=from_number,
+                to=to_number
             )
+            logger.info(f"WhatsApp message sent successfully: {message_obj.sid}")
             return True
         except Exception as e:
-            print(f"WhatsApp send error: {e}")
+            logger.error(f"WhatsApp send error: {e}")
             return False
     
     async def send_processing_update(self, to_number: str, processing_type: str, status: str, data: Dict = None):
@@ -124,12 +136,12 @@ class WhatsAppAIService:
                 "started": "🔄 Starting document analysis...",
                 "ocr_complete": "✅ Text extraction complete. Analyzing transactions...",
                 "ai_complete": "🤖 AI analysis complete. Creating ledger entries...",
-                "success": f"✅ Processing complete!\n📊 Found {data.get('transaction_count', 0)} transactions\n💰 Total amount: ₹{data.get('total_amount', 0):,.2f}\n\n📱 Check your MyCG app for details.",
+                "success": f"✅ Processing complete!\n📊 Found {data.get('transaction_count', 0) if data else 0} transactions\n💰 Total amount: ₹{data.get('total_amount', 0) if data else 0:,.2f}\n\n📱 Check your MyCG app for details.",
                 "error": "❌ Document processing failed. Please try uploading again or contact support."
             },
             "nil_filing": {
                 "started": "📋 Processing NIL filing...",
-                "success": f"✅ NIL filing completed!\n📄 Reference: {data.get('reference_no', 'N/A')}\n📅 Filed on: {data.get('filing_date', 'N/A')}",
+                "success": f"✅ NIL filing completed!\n📄 Reference: {data.get('reference_no', 'N/A') if data else 'N/A'}\n📅 Filed on: {data.get('filing_date', 'N/A') if data else 'N/A'}",
                 "error": "❌ NIL filing failed. Please try again or contact support."
             }
         }
@@ -142,22 +154,22 @@ class WhatsAppAIService:
 🤖 MyCG AI Assistant - Commands:
 
 📋 *Filing & Status:*
-• Send 'NIL' - File NIL GST return
-• Send 'STATUS' - Check filing status
+- Send 'NIL' - File NIL GST return
+- Send 'STATUS' - Check filing status
 
 📄 *Documents:*
-• Upload bank statements - Auto-create entries
-• Upload invoices - Extract & categorize
-• Upload notices - AI analysis & reply
+- Upload bank statements - Auto-create entries
+- Upload invoices - Extract & categorize
+- Upload notices - AI analysis & reply
 
 ❓ *Ask Questions:*
-• "Can I claim home office expenses?"
-• "What's the GST rate for software?"
-• "How to file GSTR-1?"
+- "Can I claim home office expenses?"
+- "What's the GST rate for software?"
+- "How to file GSTR-1?"
 
 🔗 *Quick Links:*
-• MyCG App: mycg.app
-• Support: support@mycg.app
+- MyCG App: mycg.app
+- Support: support@mycg.app
 
 Just type your question or upload a document!
         """
