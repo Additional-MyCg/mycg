@@ -307,19 +307,28 @@ async def initialize_services():
     else:
         logger.warning("⚠️ Node.js backend not configured")
     
-    # Test Redis connection
-    redis_config = settings.get_redis_config()
+    # # Test Redis connection
+    # redis_config = settings.get_redis_config()
+    # try:
+    #     import redis
+    #     redis_client = redis.from_url(**redis_config)
+    #     redis_client.ping()
+    #     logger.info("✅ Redis connection successful")
+    #     logger.info(f"  🗃️ URL: {redis_config['url']}")
+    #     logger.info(f"  💾 DB: {redis_config['db']}")
+    #     logger.info(f"  🔗 Max connections: {redis_config['max_connections']}")
+    # except Exception as e:
+    #     logger.warning(f"⚠️ Redis connection error: {e}")
+
     try:
         import redis
-        redis_client = redis.from_url(**redis_config)
+        redis_client = redis.from_url(redis_config['url'])
         redis_client.ping()
         logger.info("✅ Redis connection successful")
-        logger.info(f"  🗃️ URL: {redis_config['url']}")
-        logger.info(f"  💾 DB: {redis_config['db']}")
-        logger.info(f"  🔗 Max connections: {redis_config['max_connections']}")
     except Exception as e:
-        logger.warning(f"⚠️ Redis connection error: {e}")
-    
+        logger.warning(f"⚠️ Redis not available, running without caching: {e}")
+
+
     # Initialize file processing
     file_config = settings.get_file_config()
     logger.info("📁 File processing configuration:")

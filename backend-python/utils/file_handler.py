@@ -4,13 +4,20 @@ from typing import Optional, Dict
 import uuid
 from fastapi import UploadFile
 from PIL import Image
-import magic
 from config.settings import settings
 import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
 
+# With:
+try:
+    import magic
+    MAGIC_AVAILABLE = True
+except ImportError:
+    MAGIC_AVAILABLE = False
+    import mimetypes  # Fallback
+    
 class FileHandler:
     def __init__(self):
         self.upload_dir = "temp_uploads"
@@ -82,7 +89,10 @@ class FileHandler:
         
         # Get file type
         try:
-            file_type = magic.from_file(file_path, mime=True)
+            if MAGIC_AVAILABLE:
+                file_type = magic.from_file(file_path, mime=True)
+            else:
+                file_type = upload_file.content_type or mimetypes.guess_type(file_path)[0]
         except:
             file_type = upload_file.content_type
         

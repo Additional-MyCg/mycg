@@ -1,0 +1,35 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic>=2.5.2
+pydantic-settings==2.1.0
+python-multipart==0.0.6
+aiofiles==23.2.1
+redis==5.0.1
+pillow==10.3.0
+pytesseract==0.3.10
+opencv-python==4.9.0.80
+pandas==2.2.0
+numpy==1.26.3
+openai==1.3.7
+anthropic==0.7.8
+google-cloud-vision==3.4.5
+twilio==8.10.0
+httpx==0.25.2
+python-dotenv==1.0.0
+python-jose[cryptography]==3.3.0
+bcrypt==4.1.2
+celery==5.3.4
+scikit-learn==1.4.0
+pdf2image==1.16.3
+PyPDF2==3.0.1
+python-magic==0.4.27
+watchdog==3.0.0
+azure-storage-blob==12.19.0
+azure-identity==1.15.0
+azure-core==1.29.5
+psutil==5.9.6
+azure-ai-formrecognizer==3.3.0
+# Skip these for now - they have compatibility issues with 3.12
+# torch==2.1.0
+# transformers==4.35.0
+# easyocr==1.7.0

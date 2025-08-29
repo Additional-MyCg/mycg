@@ -4,6 +4,8 @@ from models.ai_models import WhatsAppMessage
 from datetime import datetime
 import httpx
 from config.settings import settings
+from pydantic import BaseModel
+from typing import Optional, Dict, Any
 
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
 
@@ -260,65 +262,66 @@ async def send_whatsapp_message(to_number: str, message: str):
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
+class NotificationRequest(BaseModel):
+    to_number: str
+    notification_type: str
+    data: Optional[Dict[str, Any]] = {}
+
 @router.post("/send-notification")
-async def send_notification(
-    to_number: str, 
-    notification_type: str,
-    data: dict = None
-):
+async def send_notification(request: NotificationRequest):
     """Send formatted notification via WhatsApp"""
     
     try:
         whatsapp_service = WhatsAppAIService()
         
         # Format notification based on type
-        if notification_type == "gst_reminder":
+        if request.notification_type == "gst_reminder":
             message = f"""
 🔔 *GST Filing Reminder*
 
-Hi! Your GST return is due on {data.get('due_date', 'N/A')}.
+Hi! Your GST return is due on {request.data.get('due_date', 'N/A')}.
 
 📋 Quick Actions:
-• Reply 'NIL' for NIL filing
-• Reply 'STATUS' to check current status
-• Visit mycg.app to complete filing
+- Reply 'NIL' for NIL filing
+- Reply 'STATUS' to check current status
+- Visit mycg.app to complete filing
 
 Need help? Reply 'HELP'
             """.strip()
             
-        elif notification_type == "document_processed":
+        elif request.notification_type == "document_processed":
             message = f"""
 ✅ *Document Processed*
 
-Your {data.get('document_type', 'document')} has been processed!
+Your {request.data.get('document_type', 'document')} has been processed!
 
 📊 Summary:
-• {data.get('transaction_count', 0)} transactions found
-• Total amount: ₹{data.get('total_amount', 0):,.2f}
+- {request.data.get('transaction_count', 0)} transactions found
+- Total amount: ₹{request.data.get('total_amount', 0):,.2f}
 
 Check your MyCG app for details.
             """.strip()
             
-        elif notification_type == "compliance_alert":
+        elif request.notification_type == "compliance_alert":
             message = f"""
 ⚠️ *Compliance Alert*
 
-{data.get('alert_message', 'Important compliance update')}
+{request.data.get('alert_message', 'Important compliance update')}
 
-📅 Action required by: {data.get('deadline', 'N/A')}
+📅 Action required by: {request.data.get('deadline', 'N/A')}
 
 Visit mycg.app for more details.
             """.strip()
             
         else:
-            message = data.get('message', 'Notification from MyCG')
+            message = request.data.get('message', 'Notification from MyCG')
         
-        success = await whatsapp_service.send_message(to_number, message)
+        success = await whatsapp_service.send_message(request.to_number, message)
         
         return {
             "status": "sent" if success else "failed",
-            "to": to_number,
-            "type": notification_type
+            "to": request.to_number,
+            "type": request.notification_type
         }
         
     except Exception as e:

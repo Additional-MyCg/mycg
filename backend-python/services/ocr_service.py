@@ -1,9 +1,13 @@
+# services/ocr_service.py
 import time
 from typing import Dict, Any, Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from config.settings import settings
 from models.ai_models import OCRResult
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Lazy imports to handle dependency issues gracefully
 pytesseract = None
@@ -12,46 +16,53 @@ Image = None
 cv2 = None
 np = None
 vision = None
+azure_doc_intel = None
 
 def _safe_import():
     """Safely import dependencies with error handling"""
-    global pytesseract, easyocr, Image, cv2, np, vision
+    global pytesseract, easyocr, Image, cv2, np, vision, azure_doc_intel
     
     try:
         import pytesseract as _pytesseract
         pytesseract = _pytesseract
     except ImportError as e:
-        print(f"Warning: pytesseract import failed: {e}")
+        logger.warning(f"pytesseract import failed: {e}")
     
     try:
         import easyocr as _easyocr
         easyocr = _easyocr
     except ImportError as e:
-        print(f"Warning: easyocr import failed: {e}")
+        logger.warning(f"easyocr import failed: {e}")
     
     try:
         from PIL import Image as _Image
         Image = _Image
     except ImportError as e:
-        print(f"Warning: PIL import failed: {e}")
+        logger.warning(f"PIL import failed: {e}")
     
     try:
         import cv2 as _cv2
         cv2 = _cv2
     except ImportError as e:
-        print(f"Warning: cv2 import failed: {e}")
+        logger.warning(f"cv2 import failed: {e}")
     
     try:
         import numpy as _np
         np = _np
     except ImportError as e:
-        print(f"Warning: numpy import failed: {e}")
+        logger.warning(f"numpy import failed: {e}")
     
     try:
         from google.cloud import vision as _vision
         vision = _vision
     except ImportError as e:
-        print(f"Warning: google.cloud.vision import failed: {e}")
+        logger.warning(f"google.cloud.vision import failed: {e}")
+    
+    try:
+        from azure.ai import formrecognizer as _azure_doc_intel
+        azure_doc_intel = _azure_doc_intel
+    except ImportError as e:
+        logger.warning(f"azure.ai.formrecognizer import failed: {e}")
 
 class OCRService:
     def __init__(self):
@@ -65,13 +76,33 @@ class OCRService:
         
         self.executor = ThreadPoolExecutor(max_workers=4)
         
+        # Initialize Azure Document Intelligence
+        self.azure_doc_client = None
+        if azure_doc_intel and hasattr(settings, 'azure_document_intelligence_key'):
+            try:
+                from azure.ai.formrecognizer import DocumentAnalysisClient
+                from azure.core.credentials import AzureKeyCredential
+                
+                # Get endpoint from Azure portal - it should be the regional endpoint
+                endpoint = getattr(settings, 'azure_document_intelligence_endpoint', 
+                                 'https://eastus.api.cognitive.microsoft.com/')
+                key = settings.azure_document_intelligence_key
+                
+                self.azure_doc_client = DocumentAnalysisClient(
+                    endpoint=endpoint,
+                    credential=AzureKeyCredential(key)
+                )
+                logger.info("✅ Azure Document Intelligence initialized")
+            except Exception as e:
+                logger.warning(f"Azure Document Intelligence initialization failed: {e}")
+        
         # Initialize EasyOCR if available
         self.easyocr_reader = None
         if easyocr:
             try:
                 self.easyocr_reader = easyocr.Reader(['en'])
             except Exception as e:
-                print(f"Warning: EasyOCR initialization failed: {e}")
+                logger.warning(f"EasyOCR initialization failed: {e}")
         
         # Initialize Google Vision if API key is provided
         self.google_vision_client = None
@@ -79,11 +110,13 @@ class OCRService:
             try:
                 self.google_vision_client = vision.ImageAnnotatorClient()
             except Exception as e:
-                print(f"Warning: Google Vision client initialization failed: {e}")
+                logger.warning(f"Google Vision client initialization failed: {e}")
     
     def _check_dependencies(self, method: str) -> bool:
         """Check if required dependencies are available for the method"""
-        if method == "tesseract":
+        if method == "azure":
+            return self.azure_doc_client is not None
+        elif method == "tesseract":
             return pytesseract is not None and cv2 is not None and np is not None
         elif method == "easyocr":
             return self.easyocr_reader is not None
@@ -97,6 +130,8 @@ class OCRService:
         
         # Check if any OCR method is available
         available_methods = []
+        if self._check_dependencies("azure"):
+            available_methods.append("azure")
         if self._check_dependencies("tesseract"):
             available_methods.append("tesseract")
         if self._check_dependencies("easyocr"):
@@ -106,21 +141,27 @@ class OCRService:
         
         if not available_methods:
             return OCRResult(
-                extracted_text="OCR services unavailable due to dependency issues. Please check installation.",
+                extracted_text="OCR services unavailable. Please configure Azure Document Intelligence or install OCR dependencies.",
                 confidence=0.0,
                 processing_time=time.time() - start_time,
                 method_used="none"
             )
         
         if method == "auto":
-            method = await self._choose_best_method(image_path, available_methods)
+            # Prefer Azure if available
+            if "azure" in available_methods:
+                method = "azure"
+            else:
+                method = await self._choose_best_method(image_path, available_methods)
         
         # Fallback to available method if requested method is not available
         if not self._check_dependencies(method):
             method = available_methods[0]
         
         try:
-            if method == "google_vision" and self._check_dependencies("google_vision"):
+            if method == "azure" and self._check_dependencies("azure"):
+                result = await self._azure_document_ocr(image_path)
+            elif method == "google_vision" and self._check_dependencies("google_vision"):
                 result = await self._google_vision_ocr(image_path)
             elif method == "easyocr" and self._check_dependencies("easyocr"):
                 result = await self._easyocr_extraction(image_path)
@@ -130,7 +171,9 @@ class OCRService:
                 # Try any available method
                 for fallback_method in available_methods:
                     try:
-                        if fallback_method == "tesseract":
+                        if fallback_method == "azure":
+                            result = await self._azure_document_ocr(image_path)
+                        elif fallback_method == "tesseract":
                             result = await self._tesseract_ocr(image_path)
                         elif fallback_method == "easyocr":
                             result = await self._easyocr_extraction(image_path)
@@ -139,7 +182,7 @@ class OCRService:
                         method = fallback_method
                         break
                     except Exception as e:
-                        print(f"Fallback method {fallback_method} failed: {e}")
+                        logger.error(f"Fallback method {fallback_method} failed: {e}")
                         continue
                 else:
                     raise Exception("All available OCR methods failed")
@@ -161,6 +204,41 @@ class OCRService:
                 processing_time=time.time() - start_time,
                 method_used=method
             )
+    
+    async def _azure_document_ocr(self, image_path: str) -> Dict[str, Any]:
+        """Extract text using Azure Document Intelligence"""
+        if not self._check_dependencies("azure"):
+            raise Exception("Azure Document Intelligence not available")
+        
+        def _process():
+            with open(image_path, "rb") as f:
+                poller = self.azure_doc_client.begin_analyze_document(
+                    "prebuilt-read", document=f
+                )
+                result = poller.result()
+            
+            text = ""
+            total_confidence = 0
+            line_count = 0
+            
+            for page in result.pages:
+                if hasattr(page, 'lines'):
+                    for line in page.lines:
+                        text += line.content + "\n"
+                        # Azure provides confidence scores
+                        if hasattr(line, 'confidence'):
+                            total_confidence += line.confidence
+                            line_count += 1
+            
+            avg_confidence = total_confidence / line_count if line_count > 0 else 0.9
+            
+            return {
+                "text": text.strip(),
+                "confidence": avg_confidence
+            }
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self.executor, _process)
     
     async def _tesseract_ocr(self, image_path: str) -> Dict[str, Any]:
         """Extract text using Tesseract OCR"""
@@ -256,7 +334,9 @@ class OCRService:
     
     async def _choose_best_method(self, image_path: str, available_methods: list) -> str:
         """Choose the best OCR method based on image characteristics"""
-        # Simple heuristic: use Google Vision if available, otherwise EasyOCR for complex images
+        # Priority order: Azure > Google Vision > EasyOCR > Tesseract
+        if "azure" in available_methods:
+            return "azure"
         if "google_vision" in available_methods:
             return "google_vision"
         

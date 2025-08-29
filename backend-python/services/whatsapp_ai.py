@@ -4,6 +4,10 @@ import re
 from config.settings import settings
 from models.ai_models import WhatsAppMessage, WhatsAppResponse
 from services.ai_service import AIService
+import logging
+from twilio.rest import Client
+
+logger = logging.getLogger(__name__)
 
 class WhatsAppAIService:
     def __init__(self):

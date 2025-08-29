@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     azure_openai_api_version: str = Field("2024-02-01", description="Azure OpenAI API version")
     use_azure_openai: bool = Field(False, description="Use Azure OpenAI instead of regular OpenAI")
 
+    # Add these fields to the Settings class
+    azure_document_intelligence_endpoint: Optional[str] = Field(None, description="Azure Document Intelligence endpoint")
+    azure_document_intelligence_key: Optional[str] = Field(None, description="Azure Document Intelligence key")
+
     # WhatsApp/Messaging
     twilio_account_sid: Optional[str] = Field(None, description="Twilio Account SID")
     twilio_auth_token: Optional[str] = Field(None, description="Twilio Auth Token")
